@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Cuentas y Clientes</title>
+    <style>
+        :root {
+            --primary: #4CAF50;
+            --secondary: #2196F3;
+            --danger: #f44336;
+            --bg: #f4f4f9;
+        }
+        body { font-family: Arial, sans-serif; background-color: var(--bg); margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: auto; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+        h1, h2 { color: #333; margin-top: 0; }
+        input, select, button, textarea { width: 100%; padding: 10px; margin: 8px 0; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit; }
+        button { background-color: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        button.btn-secondary { background-color: var(--secondary); }
+        button:hover { opacity: 0.9; }
+        .positive { color: var(--primary); font-weight: bold; }
+        .negative { color: var(--danger); font-weight: bold; }
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; min-width: 600px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📊 Sistema de Cuentas y Directorio</h1>
+
+    <!-- Panel de Resumen -->
+    <div class="grid-2">
+        <div class="card">
+            <h2>Ingresos</h2>
+            <p>Total Registrado: <span id="total-favor" class="positive">$0.00</span></p>
+        </div>
+        <div class="card">
+            <h2>Por Cobrar (Deudas)</h2>
+            <p>Total Pendiente: <span id="total-cobrar" class="negative">$0.00</span></p>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <!-- Formulario de Personas -->
+        <div class="card">
+            <h2>👥 Registrar Persona</h2>
+            <form id="persona-form">
+                <input type="text" id="p-nombre" placeholder="Nombre completo" required>
+                <input type="text" id="p-cedula" placeholder="Cédula (ej. V-12345678)" required>
+                <input type="tel" id="p-telefono" placeholder="Número de teléfono" required>
+                <textarea id="p-direccion" placeholder="Dirección (ej. Barcelona, Anzoátegui)" rows="2"></textarea>
+                <button type="submit" class="btn-secondary">Guardar Persona</button>
+            </form>
+        </div>
+
+        <!-- Formulario de Movimientos -->
+        <div class="card">
+            <h2>💰 Nuevo Movimiento</h2>
+            <form id="registro-form">
+                <select id="r-persona" required>
+                    <option value="">Cargando personas...</option>
+                </select>
+                <input type="text" id="r-concepto" placeholder="¿Qué se debe o pagó?" required>
+                <input type="number" id="r-monto" placeholder="Monto ($)" step="0.01" required>
+                <select id="r-tipo">
+                    <option value="ingreso">Ingreso (Pago recibido)</option>
+                    <option value="deuda">Deuda (Le presté o me debe)</option>
+                </select>
+                <input type="date" id="r-fechaPago">
+                <button type="submit">Guardar Movimiento</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Directorio de Personas -->
+    <div class="card">
+        <h2>📋 Directorio</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Cédula</th>
+                        <th>Teléfono</th>
+                        <th>Dirección</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-personas"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Lista de Cuentas -->
+    <div class="card">
+        <h2>💸 Historial de Cuentas</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Persona</th>
+                        <th>Concepto</th>
+                        <th>Monto</th>
+                        <th>Fecha Límite</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-movimientos"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-firestore.js";
+
+    // 🔴 REEMPLAZA ESTO CON TUS DATOS
+    const firebaseConfig = {
+        apiKey: "AIzaSyCpCPSVHwzvgmJ-Af9uQpsN5IiIJP3XuDI",
+        authDomain: "sistema-de-finanzas-ccf37.firebaseapp.com",
+        projectId: "sistema-de-finanzas-ccf37",
+        storageBucket: "sistema-de-finanzas-ccf37.firebasestorage.app",
+        messagingSenderId: "711387377636",
+        appId: "1:711387377636:web:4e373127235726015961f1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // --- 1. LÓGICA PARA PERSONAS ---
+    document.getElementById('persona-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await addDoc(collection(db, "personas"), {
+                nombre: document.getElementById('p-nombre').value,
+                cedula: document.getElementById('p-cedula').value,
+                telefono: document.getElementById('p-telefono').value,
+                direccion: document.getElementById('p-direccion').value,
+                timestamp: serverTimestamp()
+            });
+            e.target.reset();
+            alert("Persona registrada con éxito");
+        } catch (error) {
+            console.error("Error:", error);
+        }
+    });
+
+    // Escuchar Personas en tiempo real
+    const qPersonas = query(collection(db, "personas"), orderBy("nombre"));
+    onSnapshot(qPersonas, (snapshot) => {
+        const tablaPersonas = document.getElementById('tabla-personas');
+        const selectPersona = document.getElementById('r-persona');
+        
+        tablaPersonas.innerHTML = '';
+        selectPersona.innerHTML = '<option value="">Selecciona una persona...</option>';
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            
+            // Llenar tabla del directorio
+            tablaPersonas.innerHTML += `
+                <tr>
+                    <td><strong>${data.nombre}</strong></td>
+                    <td>${data.cedula}</td>
+                    <td>${data.telefono}</td>
+                    <td>${data.direccion}</td>
+                </tr>
+            `;
+
+            // Llenar el menú desplegable del formulario de movimientos
+            selectPersona.innerHTML += `<option value="${data.nombre}">${data.nombre}</option>`;
+        });
+    });
+
+
+    // --- 2. LÓGICA PARA MOVIMIENTOS (CUENTAS) ---
+    document.getElementById('registro-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await addDoc(collection(db, "registros"), {
+                nombre: document.getElementById('r-persona').value,
+                concepto: document.getElementById('r-concepto').value,
+                monto: parseFloat(document.getElementById('r-monto').value),
+                tipo: document.getElementById('r-tipo').value,
+                fechaPago: document.getElementById('r-fechaPago').value,
+                timestamp: serverTimestamp()
+            });
+            e.target.reset();
+        } catch (error) {
+            console.error("Error:", error);
+        }
+    });
+
+    // Escuchar Movimientos en tiempo real
+    const qRegistros = query(collection(db, "registros"), orderBy("timestamp", "desc"));
+    onSnapshot(qRegistros, (snapshot) => {
+        const tablaMovimientos = document.getElementById('tabla-movimientos');
+        tablaMovimientos.innerHTML = '';
+        
+        let ingresosTotales = 0;
+        let deudasTotales = 0;
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            
+            if(data.tipo === 'ingreso') ingresosTotales += data.monto;
+            if(data.tipo === 'deuda') deudasTotales += data.monto;
+
+            const claseMonto = data.tipo === 'ingreso' ? 'positive' : 'negative';
+            const etiqueta = data.tipo === 'ingreso' ? '✅ Pagado' : '⏳ Por cobrar';
+
+            tablaMovimientos.innerHTML += `
+                <tr>
+                    <td><strong>${data.nombre}</strong></td>
+                    <td>${data.concepto}</td>
+                    <td class="${claseMonto}">$${data.monto.toFixed(2)}</td>
+                    <td>${data.fechaPago || 'N/A'}</td>
+                    <td>${etiqueta}</td>
+                </tr>
+            `;
+        });
+
+        document.getElementById('total-favor').innerText = `$${ingresosTotales.toFixed(2)}`;
+        document.getElementById('total-cobrar').innerText = `$${deudasTotales.toFixed(2)}`;
+    });
+</script>
+
+</body>
+</html>
